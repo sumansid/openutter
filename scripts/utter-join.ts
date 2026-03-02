@@ -4,14 +4,21 @@
  *
  * Usage:
  *   npx tsx skills/openutter/scripts/utter-join.ts <meet-url>
- *   npx tsx skills/openutter/scripts/utter-join.ts https://meet.google.com/abc-defg-hij 
+ *   npx tsx skills/openutter/scripts/utter-join.ts https://meet.google.com/abc-defg-hij
  *   npx tsx skills/openutter/scripts/utter-join.ts <meet-url> --bot-name "My Bot" --duration 60m
  *
  * No Google account or OAuth required — joins as a guest and waits for host admission.
  */
 
 import { execSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -33,7 +40,12 @@ const TRANSCRIPTS_DIR = join(OPENUTTER_WORKSPACE_DIR, "transcripts");
  * Send an image to the user's chat via `openclaw message send --media`.
  * If channel/target aren't provided, falls back to printing the marker.
  */
-function sendImage(opts: { channel?: string; target?: string; message: string; mediaPath: string }): void {
+function sendImage(opts: {
+  channel?: string;
+  target?: string;
+  message: string;
+  mediaPath: string;
+}): void {
   if (opts.channel && opts.target) {
     try {
       execSync(
@@ -122,7 +134,18 @@ function parseArgs() {
   }
 
   const noAuth = useAnon;
-  return { meetUrl, headed, noAuth, noCamera, noMic, verbose, durationMs, botName, channel, target };
+  return {
+    meetUrl,
+    headed,
+    noAuth,
+    noCamera,
+    noMic,
+    verbose,
+    durationMs,
+    botName,
+    channel,
+    target,
+  };
 }
 
 // ── Google Meet UI automation ──────────────────────────────────────────
@@ -134,7 +157,7 @@ function parseArgs() {
 async function isBlockedFromJoining(page: Page): Promise<boolean> {
   try {
     const blocked = page
-      .locator('text=/You can\'t join this video call/i, text=/can.t join this video call/i')
+      .locator("text=/You can't join this video call/i, text=/can.t join this video call/i")
       .first();
     return await blocked.isVisible({ timeout: 2000 });
   } catch {
@@ -143,20 +166,49 @@ async function isBlockedFromJoining(page: Page): Promise<boolean> {
 }
 
 /**
- * Dismiss the "Your meeting is safe" or "Got it" or cookie consent overlays.
+ * Dismiss pre-join overlays: "Sign in with your Google account" tooltip,
+ * "Your meeting is safe", cookie consent, "Use Gemini to take notes", etc.
+ * Runs multiple rounds since popups can appear sequentially.
  */
 async function dismissOverlays(page: Page): Promise<void> {
-  const dismissTexts = ["Got it", "Dismiss", "OK", "Accept all", "Continue without microphone"];
-  for (const text of dismissTexts) {
+  const dismissTexts = ["Got it", "Dismiss", "OK", "Accept all", "Continue without microphone", "No thanks"];
+
+  for (let round = 0; round < 3; round++) {
+    let dismissed = false;
+
+    // Click dismiss/close buttons
+    for (const text of dismissTexts) {
+      try {
+        const btn = page.locator(`button:has-text("${text}")`).first();
+        if (await btn.isVisible({ timeout: 1500 })) {
+          await btn.click();
+          console.log(`  Dismissed overlay ("${text}")`);
+          dismissed = true;
+          await page.waitForTimeout(500);
+        }
+      } catch {
+        // Button not present, that's fine
+      }
+    }
+
+    // Dismiss "Use Gemini to take notes" banner — click away from it or press Escape
     try {
-      const btn = page.locator(`button:has-text("${text}")`).first();
-      if (await btn.isVisible({ timeout: 1500 })) {
-        await btn.click();
+      const gemini = page.locator('text=/Use Gemini/i').first();
+      if (await gemini.isVisible({ timeout: 1000 })) {
+        await page.keyboard.press("Escape");
+        console.log("  Dismissed Gemini banner");
+        dismissed = true;
         await page.waitForTimeout(500);
       }
     } catch {
-      // Button not present, that's fine
+      // Not present
     }
+
+    // Press Escape to close any remaining tooltips/popups
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+
+    if (!dismissed) break;
   }
 }
 
@@ -205,7 +257,7 @@ async function disableMediaOnPreJoin(page: Page, opts: { noCamera: boolean; noMi
       const micBtn = page
         .locator(
           '[aria-label*="microphone" i][data-is-muted="false"], ' +
-          'button[aria-label*="Turn off microphone" i]',
+            'button[aria-label*="Turn off microphone" i]',
         )
         .first();
       if (await micBtn.isVisible({ timeout: 3000 })) {
@@ -222,7 +274,7 @@ async function disableMediaOnPreJoin(page: Page, opts: { noCamera: boolean; noMi
       const camBtn = page
         .locator(
           '[aria-label*="camera" i][data-is-muted="false"], ' +
-          'button[aria-label*="Turn off camera" i]',
+            'button[aria-label*="Turn off camera" i]',
         )
         .first();
       if (await camBtn.isVisible({ timeout: 3000 })) {
@@ -240,7 +292,9 @@ async function disableMediaOnPreJoin(page: Page, opts: { noCamera: boolean; noMi
  */
 async function enterNameIfNeeded(page: Page, botName: string): Promise<void> {
   try {
-    const nameInput = page.locator('input[aria-label="Your name"], input[placeholder*="name" i]').first();
+    const nameInput = page
+      .locator('input[aria-label="Your name"], input[placeholder*="name" i]')
+      .first();
     if (await nameInput.isVisible({ timeout: 3000 })) {
       await nameInput.fill(botName);
       console.log(`  Set display name: ${botName}`);
@@ -261,16 +315,19 @@ async function clickJoinButton(page: Page, maxAttempts = 6): Promise<boolean> {
     'button:has-text("Join meeting")',
     'button:has-text("Join")',
     '[data-idom-class*="join"] button',
-    'button >> text=/join/i',
+    "button >> text=/join/i",
   ];
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     // Check if we've been blocked before trying more selectors
-    const isBlocked = await page.evaluate(() => {
-      const text = document.body.innerText || "";
-      return /you can.t join this video call/i.test(text) ||
-        /return(ing)? to home screen/i.test(text);
-    }).catch(() => false);
+    const isBlocked = await page
+      .evaluate(() => {
+        const text = document.body.innerText || "";
+        return (
+          /you can.t join this video call/i.test(text) || /return(ing)? to home screen/i.test(text)
+        );
+      })
+      .catch(() => false);
 
     if (isBlocked) {
       console.log("  Detected 'can't join' — aborting join attempt");
@@ -328,7 +385,7 @@ async function waitUntilInMeeting(page: Page, timeoutMs = 600_000): Promise<void
     // "You're the only one here" or "You've been admitted" — means we're in
     try {
       const inMeetingText = page
-        .locator('text=/only one here/i, text=/you.ve been admitted/i')
+        .locator("text=/only one here/i, text=/you.ve been admitted/i")
         .first();
       if (await inMeetingText.isVisible({ timeout: 1000 })) {
         return;
@@ -340,17 +397,19 @@ async function waitUntilInMeeting(page: Page, timeoutMs = 600_000): Promise<void
     // Check if explicitly blocked or denied (not just waiting in lobby).
     // Use page.evaluate() for reliable text matching — Playwright text selectors
     // can be fragile with special characters and comma-separated patterns.
-    const isBlocked = await page.evaluate(() => {
-      const text = document.body.innerText || "";
-      return (
-        /you can.t join this video call/i.test(text) ||
-        /return(ing)? to home screen/i.test(text) ||
-        /you have been removed/i.test(text) ||
-        /denied your request/i.test(text) ||
-        /meeting has been locked/i.test(text) ||
-        /cannot join/i.test(text)
-      );
-    }).catch(() => false);
+    const isBlocked = await page
+      .evaluate(() => {
+        const text = document.body.innerText || "";
+        return (
+          /you can.t join this video call/i.test(text) ||
+          /return(ing)? to home screen/i.test(text) ||
+          /you have been removed/i.test(text) ||
+          /denied your request/i.test(text) ||
+          /meeting has been locked/i.test(text) ||
+          /cannot join/i.test(text)
+        );
+      })
+      .catch(() => false);
 
     if (isBlocked) {
       throw new Error("Blocked from joining — access denied or meeting unavailable");
@@ -371,7 +430,9 @@ async function waitForMeetingEnd(page: Page, durationMs?: number): Promise<strin
   const checkEnded = async (): Promise<string | null> => {
     try {
       const endedText = page
-        .locator('text=/meeting has ended/i, text=/removed from/i, text=/You left the meeting/i, text=/You.ve left the call/i')
+        .locator(
+          "text=/meeting has ended/i, text=/removed from/i, text=/You left the meeting/i, text=/You.ve left the call/i",
+        )
         .first();
       if (await endedText.isVisible({ timeout: 500 })) {
         return "Meeting ended";
@@ -521,12 +582,14 @@ async function enableCaptions(page: Page): Promise<void> {
   // Strict check: look for the actual caption container, not just [aria-live]
   // which can exist on the page for other purposes
   const checkCaptions = async (): Promise<boolean> =>
-    page.evaluate(`
+    page
+      .evaluate(`
       !!(document.querySelector('[role="region"][aria-label*="Captions"]') ||
          document.querySelector('[aria-label="Captions are on"]') ||
          document.querySelector('button[aria-label*="Turn off captions" i]') ||
          document.querySelector('[data-is-persistent-caption="true"]'))
-    `).catch(() => false) as Promise<boolean>;
+    `)
+      .catch(() => false) as Promise<boolean>;
 
   // Check if CC button shows "Turn off" (meaning captions are already on)
   const captionsAlreadyOn = await checkCaptions();
@@ -541,11 +604,13 @@ async function enableCaptions(page: Page): Promise<void> {
     await page.mouse.move(640, 680);
     await page.waitForTimeout(1000);
 
-    const ccButton = page.locator(
-      'button[aria-label*="Turn on captions" i], ' +
-      'button[aria-label*="captions" i][aria-pressed="false"], ' +
-      'button[aria-label*="captions (c)" i]',
-    ).first();
+    const ccButton = page
+      .locator(
+        'button[aria-label*="Turn on captions" i], ' +
+          'button[aria-label*="captions" i][aria-pressed="false"], ' +
+          'button[aria-label*="captions (c)" i]',
+      )
+      .first();
     if (await ccButton.isVisible({ timeout: 3000 })) {
       await ccButton.click();
       await page.waitForTimeout(2000);
@@ -578,11 +643,15 @@ async function enableCaptions(page: Page): Promise<void> {
 
   // Method 4: Click the "more options" (⋮) menu and look for captions option
   try {
-    const moreBtn = page.locator('button[aria-label*="more options" i], button[aria-label*="More actions" i]').first();
+    const moreBtn = page
+      .locator('button[aria-label*="more options" i], button[aria-label*="More actions" i]')
+      .first();
     if (await moreBtn.isVisible({ timeout: 2000 })) {
       await moreBtn.click();
       await page.waitForTimeout(1000);
-      const captionsMenuItem = page.locator('li:has-text("Captions"), [role="menuitem"]:has-text("Captions")').first();
+      const captionsMenuItem = page
+        .locator('li:has-text("Captions"), [role="menuitem"]:has-text("Captions")')
+        .first();
       if (await captionsMenuItem.isVisible({ timeout: 2000 })) {
         await captionsMenuItem.click();
         await page.waitForTimeout(2000);
@@ -604,7 +673,11 @@ async function enableCaptions(page: Page): Promise<void> {
     await page.mouse.move(640, 680);
     await page.waitForTimeout(500);
     // The CC button often has a specific icon — try matching by the closed_caption icon
-    const ccByIcon = page.locator('button:has([data-icon="closed_caption"]), button:has([data-icon="closed_caption_off"])').first();
+    const ccByIcon = page
+      .locator(
+        'button:has([data-icon="closed_caption"]), button:has([data-icon="closed_caption_off"])',
+      )
+      .first();
     if (await ccByIcon.isVisible({ timeout: 2000 })) {
       await ccByIcon.click();
       await page.waitForTimeout(2000);
@@ -726,7 +799,11 @@ const CAPTION_OBSERVER_SCRIPT = `
  * so we need fuzzy matching to detect that text is still growing.
  */
 function normalizeForCompare(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function setupCaptionCapture(
@@ -749,7 +826,12 @@ async function setupCaptionCapture(
     const normNew = normalizeForCompare(text);
     const normPrev = normalizeForCompare(prevWritten);
 
-    if (normPrev && (normNew === normPrev || normPrev.startsWith(normNew) || normNew.startsWith(normPrev) && normNew.length - normPrev.length < 5)) {
+    if (
+      normPrev &&
+      (normNew === normPrev ||
+        normPrev.startsWith(normNew) ||
+        (normNew.startsWith(normPrev) && normNew.length - normPrev.length < 5))
+    ) {
       // Already written this (or trivially close) — skip
       return;
     }
@@ -802,7 +884,8 @@ async function setupCaptionCapture(
       const isGrowing =
         normNew.startsWith(normOld) ||
         normOld.startsWith(normNew) ||
-        (normNew.length > normOld.length && normNew.includes(normOld.slice(0, Math.min(20, normOld.length))));
+        (normNew.length > normOld.length &&
+          normNew.includes(normOld.slice(0, Math.min(20, normOld.length))));
 
       if (isGrowing) {
         if (text.length >= existing.text.length) {
@@ -982,7 +1065,11 @@ export async function joinMeeting(opts: {
   for (let attempt = 1; attempt <= MAX_JOIN_RETRIES; attempt++) {
     console.log(`\nNavigating to meeting... (attempt ${attempt}/${MAX_JOIN_RETRIES})`);
     if (attempt > 1) {
-      sendMessage({ channel, target, message: `🦦 Retrying to join... (attempt ${attempt}/${MAX_JOIN_RETRIES})` });
+      sendMessage({
+        channel,
+        target,
+        message: `🦦 Retrying to join... (attempt ${attempt}/${MAX_JOIN_RETRIES})`,
+      });
     }
     await currentPage.goto(meetUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await currentPage.waitForTimeout(3000);
@@ -1021,9 +1108,16 @@ export async function joinMeeting(opts: {
       const screenshotPath = join(OPENUTTER_WORKSPACE_DIR, "debug-join-failed.png");
       await currentPage.screenshot({ path: screenshotPath, fullPage: true });
       console.error(`[OPENUTTER_DEBUG_IMAGE] ${screenshotPath}`);
-      sendImage({ channel, target, message: "Blocked from joining after multiple attempts. Here's what the bot saw:", mediaPath: screenshotPath });
+      sendImage({
+        channel,
+        target,
+        message: "Blocked from joining after multiple attempts. Here's what the bot saw:",
+        mediaPath: screenshotPath,
+      });
       await currentContext.close();
-      throw new Error(`Blocked from joining after ${MAX_JOIN_RETRIES} attempts. Debug screenshot: ${screenshotPath}`);
+      throw new Error(
+        `Blocked from joining after ${MAX_JOIN_RETRIES} attempts. Debug screenshot: ${screenshotPath}`,
+      );
     }
 
     // Enter bot name (guest join)
@@ -1055,7 +1149,11 @@ export async function joinMeeting(opts: {
     // If join button clicked, wait until we're in the meeting (or blocked)
     if (joined) {
       registerScreenshotHandler(currentPage);
-      sendMessage({ channel, target, message: `🦦 Waiting to be admitted — please ask the host to let "OpenUtter Bot" in` });
+      sendMessage({
+        channel,
+        target,
+        message: `🦦 Waiting to be admitted — please ask the host to let "OpenUtter Bot" in`,
+      });
       try {
         await waitUntilInMeeting(currentPage);
         break; // Successfully in the meeting
@@ -1097,9 +1195,16 @@ export async function joinMeeting(opts: {
     await currentPage.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
     console.error("Could not join the meeting after all attempts.");
     console.error(`[OPENUTTER_DEBUG_IMAGE] ${screenshotPath}`);
-    sendImage({ channel, target, message: "Could not join the meeting. Here is what the bot saw:", mediaPath: screenshotPath });
+    sendImage({
+      channel,
+      target,
+      message: "Could not join the meeting. Here is what the bot saw:",
+      mediaPath: screenshotPath,
+    });
     await currentContext.close();
-    throw new Error(`Failed to join after ${MAX_JOIN_RETRIES} attempts. Debug screenshot: ${screenshotPath}`);
+    throw new Error(
+      `Failed to join after ${MAX_JOIN_RETRIES} attempts. Debug screenshot: ${screenshotPath}`,
+    );
   }
   // Take a screenshot to confirm we're in the meeting
   const successScreenshotPath = join(OPENUTTER_WORKSPACE_DIR, "joined-meeting.png");
@@ -1107,7 +1212,12 @@ export async function joinMeeting(opts: {
   console.log("\n✅ Successfully joined the meeting!");
   console.log(`[OPENUTTER_JOINED] ${meetUrl}`);
   console.log(`[OPENUTTER_SUCCESS_IMAGE] ${successScreenshotPath}`);
-  sendImage({ channel, target, message: "Successfully joined the meeting!", mediaPath: successScreenshotPath });
+  sendImage({
+    channel,
+    target,
+    message: "Successfully joined the meeting!",
+    mediaPath: successScreenshotPath,
+  });
 
   // Dismiss post-join dialogs (e.g. "Others may see your video differently" → "Got it")
   await dismissPostJoinDialogs(currentPage);
@@ -1127,7 +1237,11 @@ export async function joinMeeting(opts: {
     verbose,
   );
 
-  sendMessage({ channel, target, message: `🦦 All set! Listening and capturing captions. I'll save the transcript when the meeting ends.` });
+  sendMessage({
+    channel,
+    target,
+    message: `🦦 All set! Listening and capturing captions. I'll save the transcript when the meeting ends.`,
+  });
 
   // Wait for meeting to end
   console.log("Waiting in meeting... (Ctrl+C to leave)");
@@ -1141,7 +1255,11 @@ export async function joinMeeting(opts: {
     console.log(`[OPENUTTER_TRANSCRIPT] ${transcriptPath}`);
     sendMessage({ channel, target, message: `🦦 Meeting ended (${reason}). Transcript saved.` });
   } else {
-    sendMessage({ channel, target, message: `🦦 Meeting ended (${reason}). No captions were captured.` });
+    sendMessage({
+      channel,
+      target,
+      message: `🦦 Meeting ended (${reason}). No captions were captured.`,
+    });
   }
 
   return { context: currentContext, page: currentPage, reason };
