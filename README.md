@@ -25,13 +25,17 @@ Then install Chromium once:
 npx playwright-core install chromium
 ```
 
+At that point, OpenUtter is ready for guest joins. Google account auth is
+optional and only needed if you want to join with `--auth` instead of waiting
+in the guest lobby.
+
 ## Commands
 
 ```bash
-npx openutter auth
-npx openutter join <meet-url> --auth
 npx openutter join <meet-url> --anon --bot-name "OpenUtter Bot"
+npx openutter join <meet-url> --auth
 npx openutter join <meet-url> --auth --headed
+npx openutter auth
 npx openutter transcript
 npx openutter transcript --last 20
 npx openutter screenshot
@@ -45,7 +49,7 @@ npx openutter screenshot
 4. Writes a deduplicated transcript to disk.
 5. Supports on-demand screenshots.
 
-## Authenticate Once
+## Authenticate Once (Optional)
 
 To join as an authenticated Google user instead of waiting in the guest lobby:
 

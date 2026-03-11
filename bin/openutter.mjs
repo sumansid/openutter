@@ -24,18 +24,18 @@ Usage:
 
 Commands:
   install      Install the OpenUtter skill into ~/.openclaw/skills/openutter
-  auth         Save a Google session for authenticated joins
   join         Join a Google Meet and capture captions
+  auth         Save a Google session for authenticated joins (optional)
   transcript   Print the latest transcript
   screenshot   Request an on-demand screenshot
   help         Show this help
 
 Examples:
   npx openutter
-  npx openutter auth
   npx openutter join https://meet.google.com/abc-defg-hij --anon --bot-name "OpenUtter Bot"
   npx openutter join https://meet.google.com/abc-defg-hij --auth
   npx openutter join https://meet.google.com/abc-defg-hij --auth --headed
+  npx openutter auth
   npx openutter transcript --last 20
   npx openutter screenshot
 
@@ -88,7 +88,7 @@ function installSkill(targetDir) {
   }
   console.log("Start a new OpenClaw session to pick it up.");
   console.log("If needed, install Chromium with: npx playwright-core install chromium");
-  console.log("Then run: npx openutter auth");
+  console.log("Optional: run `npx openutter auth` if you want authenticated joins.");
 }
 
 function runScript(scriptName, args) {
