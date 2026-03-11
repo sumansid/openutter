@@ -159,7 +159,14 @@ npx openutter transcript --last 20
 Transcripts are saved under:
 
 ```bash
-~/.openclaw/workspace/openutter/transcripts/<meeting-id>-<YYYY-MM-DD>.txt
+~/.openclaw/workspace/openutter/transcripts/<meeting-id>.txt
+```
+
+OpenUtter uses the Google Meet meeting ID as the transcript filename. For
+example, joining `https://meet.google.com/abc-defg-hij` saves captions to:
+
+```bash
+~/.openclaw/workspace/openutter/transcripts/abc-defg-hij.txt
 ```
 
 Example format:

@@ -424,8 +424,32 @@ async function waitUntilInMeeting(page: Page, timeoutMs = 600_000): Promise<void
 /**
  * Detect when the meeting ends (host ends it, or we get kicked).
  */
-async function waitForMeetingEnd(page: Page, durationMs?: number): Promise<string> {
+async function clickLeaveButton(page: Page): Promise<void> {
+  try {
+    const leaveBtn = page
+      .locator('[aria-label*="Leave call" i], [aria-label*="leave" i][data-tooltip*="Leave"]')
+      .first();
+    if (await leaveBtn.isVisible({ timeout: 1000 })) {
+      await leaveBtn.click();
+      await page.waitForTimeout(1000);
+    }
+  } catch {
+    // Best-effort only
+  }
+}
+
+async function waitForMeetingEnd(
+  page: Page,
+  opts?: {
+    durationMs?: number;
+    captionIdleTimeoutMs?: number;
+    getLastCaptionAt?: () => number;
+  },
+): Promise<string> {
   const start = Date.now();
+  const durationMs = opts?.durationMs;
+  const captionIdleTimeoutMs = opts?.captionIdleTimeoutMs;
+  const getLastCaptionAt = opts?.getLastCaptionAt;
 
   const checkEnded = async (): Promise<string | null> => {
     try {
@@ -450,7 +474,13 @@ async function waitForMeetingEnd(page: Page, durationMs?: number): Promise<strin
 
   while (true) {
     if (durationMs && Date.now() - start >= durationMs) {
+      await clickLeaveButton(page);
       return "Duration limit reached";
+    }
+
+    if (captionIdleTimeoutMs && getLastCaptionAt && Date.now() - getLastCaptionAt() >= captionIdleTimeoutMs) {
+      await clickLeaveButton(page);
+      return "No captions captured for 10 minutes";
     }
 
     const reason = await checkEnded();
@@ -810,7 +840,7 @@ async function setupCaptionCapture(
   page: Page,
   transcriptPath: string,
   verbose: boolean,
-): Promise<{ cleanup: () => void }> {
+): Promise<{ cleanup: () => void; getLastCaptionAt: () => number }> {
   // Track the current in-progress caption per speaker
   const tracking = new Map<string, { text: string; ts: number; startTs: number }>();
   // Track what was already written to disk per speaker, so we never re-write the same content.
@@ -819,6 +849,7 @@ async function setupCaptionCapture(
   // We need to remember what we already wrote to detect genuinely new content.
   const lastWritten = new Map<string, string>();
   let lastMinuteKey = "";
+  let lastCaptionAt = Date.now();
 
   const finalizeCaption = (speaker: string, text: string, startTs: number): void => {
     // Check if this text was already written (or is a subset of what was written)
@@ -859,6 +890,7 @@ async function setupCaptionCapture(
     } catch {
       // File write error — ignore
     }
+    lastCaptionAt = Date.now();
     if (verbose) {
       console.log(`  [caption] ${line}`);
     }
@@ -918,6 +950,7 @@ async function setupCaptionCapture(
   await page.evaluate(CAPTION_OBSERVER_SCRIPT);
 
   return {
+    getLastCaptionAt: () => lastCaptionAt,
     cleanup: () => {
       clearInterval(settleInterval);
       // Finalize any remaining captions
@@ -1219,11 +1252,11 @@ export async function joinMeeting(opts: {
   await enableCaptions(currentPage);
 
   const meetingId = extractMeetingId(meetUrl);
-  const dateStr = new Date().toISOString().slice(0, 10);
   mkdirSync(TRANSCRIPTS_DIR, { recursive: true });
-  const transcriptPath = join(TRANSCRIPTS_DIR, `${meetingId}-${dateStr}.txt`);
+  const transcriptPath = join(TRANSCRIPTS_DIR, `${meetingId}.txt`);
+  writeFileSync(transcriptPath, "");
 
-  const { cleanup: cleanupCaptions } = await setupCaptionCapture(
+  const { cleanup: cleanupCaptions, getLastCaptionAt } = await setupCaptionCapture(
     currentPage,
     transcriptPath,
     verbose,
@@ -1237,7 +1270,11 @@ export async function joinMeeting(opts: {
 
   // Wait for meeting to end
   console.log("Waiting in meeting... (Ctrl+C to leave)");
-  const reason = await waitForMeetingEnd(currentPage, durationMs);
+  const reason = await waitForMeetingEnd(currentPage, {
+    durationMs,
+    captionIdleTimeoutMs: 10 * 60_000,
+    getLastCaptionAt,
+  });
   console.log(`\nLeaving meeting: ${reason}`);
 
   // Flush remaining captions
