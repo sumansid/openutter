@@ -19,7 +19,16 @@ This installs the OpenUtter skill into:
 ~/.openclaw/skills/openutter
 ```
 
-Then install Chromium once:
+During install, OpenUtter also tries to:
+
+- install Chromium via Playwright
+- verify Chromium can actually launch
+- auto-install Linux runtime dependencies when supported and running as root
+
+If Linux system dependencies are missing and OpenUtter cannot install them
+automatically, it prints the exact command to run.
+
+If you ever want to install Chromium manually, you can still run:
 
 ```bash
 npx playwright-core install chromium
