@@ -87,9 +87,10 @@ By default, OpenUtter can join as a guest with:
 npx openutter join <meet-url> --anon --bot-name "Your Bot Name"
 ```
 
-Use authentication only if you want OpenUtter to join as your signed-in Google
-account with `--auth`, which usually avoids waiting in the guest lobby for host
-approval.
+Guest mode works, and OpenUtter retries the join flow up to 3 times when Meet
+blocks or drops the request. But authentication is the best way to make sure
+the bot gets admitted reliably, because it joins as your signed-in Google
+account with `--auth` instead of waiting in the guest lobby for host approval.
 
 To save a Google session for authenticated joins:
 
