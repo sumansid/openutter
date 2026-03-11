@@ -1060,17 +1060,10 @@ export async function joinMeeting(opts: {
   let currentPage = page;
   let joined = false;
 
-  sendMessage({ channel, target, message: `🦦 Connecting to meeting...` });
+  sendMessage({ channel, target, message: `🦦 Trying to join the meeting (up to 3 attempts)...` });
 
   for (let attempt = 1; attempt <= MAX_JOIN_RETRIES; attempt++) {
     console.log(`\nNavigating to meeting... (attempt ${attempt}/${MAX_JOIN_RETRIES})`);
-    if (attempt > 1) {
-      sendMessage({
-        channel,
-        target,
-        message: `🦦 Retrying to join... (attempt ${attempt}/${MAX_JOIN_RETRIES})`,
-      });
-    }
     await currentPage.goto(meetUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await currentPage.waitForTimeout(3000);
 
@@ -1129,7 +1122,6 @@ export async function joinMeeting(opts: {
 
     // Click join button
     console.log("\nAttempting to join...");
-    sendMessage({ channel, target, message: `🦦 Asking to join the meeting...` });
     joined = await clickJoinButton(currentPage);
 
     // Handle 2-step join preview (RecallAI pattern: a second "Join now" may appear)
