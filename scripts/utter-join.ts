@@ -33,6 +33,7 @@ const AUTH_FILE = join(OPENUTTER_DIR, "auth.json");
 const PID_FILE = join(OPENUTTER_DIR, "otter.pid");
 const SCREENSHOT_READY_FILE = join(OPENUTTER_WORKSPACE_DIR, "screenshot-ready.json");
 const TRANSCRIPTS_DIR = join(OPENUTTER_WORKSPACE_DIR, "transcripts");
+const RECORDINGS_DIR = join(OPENUTTER_WORKSPACE_DIR, "recordings");
 
 // ── Send image directly to channel ──────────────────────────────────────
 
@@ -98,6 +99,7 @@ function parseArgs() {
   const noCamera = !args.includes("--camera");
   const noMic = !args.includes("--mic");
   const verbose = args.includes("--verbose");
+  const record = args.includes("--record");
   const durationIdx = args.indexOf("--duration");
   const durationRaw = durationIdx >= 0 ? args[durationIdx + 1] : undefined;
   const botNameIdx = args.indexOf("--bot-name");
@@ -153,6 +155,7 @@ function parseArgs() {
     noCamera,
     noMic,
     verbose,
+    record,
     durationMs,
     botName,
     channel,
@@ -982,6 +985,7 @@ export async function joinMeeting(opts: {
   noCamera?: boolean;
   noMic?: boolean;
   verbose?: boolean;
+  record?: boolean;
   durationMs?: number;
   botName?: string;
   channel?: string;
@@ -994,6 +998,7 @@ export async function joinMeeting(opts: {
     noCamera = true,
     noMic = true,
     verbose = false,
+    record = false,
     durationMs,
     botName: botNameOpt,
     channel,
@@ -1019,6 +1024,10 @@ export async function joinMeeting(opts: {
   console.log(`OpenUtter — Joining meeting: ${meetUrl}`);
   console.log(`  Bot name: ${botName}`);
   console.log(`  Camera: ${noCamera ? "off" : "on"}, Mic: ${noMic ? "off" : "on"}`);
+  if (record) {
+    console.log("  Recording: ON (video will be saved as WebM)");
+    mkdirSync(RECORDINGS_DIR, { recursive: true });
+  }
   if (durationMs) {
     console.log(`  Max duration: ${Math.round(durationMs / 60_000)}m`);
   }
@@ -1082,15 +1091,22 @@ export async function joinMeeting(opts: {
       args: chromiumArgs,
       ignoreDefaultArgs: ["--enable-automation"],
     });
-    context = await browser.newContext({
+    const authContextOpts: Record<string, unknown> = {
       storageState: AUTH_FILE,
       viewport: { width: 1280, height: 720 },
       permissions: ["camera", "microphone"],
       userAgent:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    });
+    };
+    if (record) {
+      authContextOpts.recordVideo = { dir: RECORDINGS_DIR, size: { width: 1280, height: 720 } };
+    }
+    context = await browser.newContext(authContextOpts);
     page = await context.newPage();
   } else {
+    if (record) {
+      (contextOpts as any).recordVideo = { dir: RECORDINGS_DIR, size: { width: 1280, height: 720 } };
+    }
     context = await pw.chromium.launchPersistentContext(userDataDir, contextOpts as any);
     page = context.pages()[0] ?? (await context.newPage());
   }
@@ -1130,12 +1146,16 @@ export async function joinMeeting(opts: {
           ignoreDefaultArgs: ["--enable-automation"],
         });
 
-        currentContext = await browser.newContext({
+        const retryContextOpts: Record<string, unknown> = {
           viewport: { width: 1280, height: 720 },
           permissions: ["camera", "microphone"],
           userAgent:
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        });
+        };
+        if (record) {
+          retryContextOpts.recordVideo = { dir: RECORDINGS_DIR, size: { width: 1280, height: 720 } };
+        }
+        currentContext = await browser.newContext(retryContextOpts);
 
         await currentContext.addInitScript(STEALTH_SCRIPT);
         currentPage = await currentContext.newPage();
@@ -1219,12 +1239,16 @@ export async function joinMeeting(opts: {
         ignoreDefaultArgs: ["--enable-automation"],
       });
 
-      currentContext = await browser.newContext({
+      const retryOpts: Record<string, unknown> = {
         viewport: { width: 1280, height: 720 },
         permissions: ["camera", "microphone"],
         userAgent:
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      });
+      };
+      if (record) {
+        retryOpts.recordVideo = { dir: RECORDINGS_DIR, size: { width: 1280, height: 720 } };
+      }
+      currentContext = await browser.newContext(retryOpts);
 
       await currentContext.addInitScript(STEALTH_SCRIPT);
       currentPage = await currentContext.newPage();
@@ -1311,6 +1335,61 @@ export async function joinMeeting(opts: {
       target,
       message: `🦦 Meeting ended (${reason}). No captions were captured.`,
     });
+  }
+
+  // Handle video recording: Playwright saves to a temp file, we need to
+  // close the page to finalize, then rename to meeting ID
+  if (record) {
+    try {
+      const video = currentPage.video();
+      if (video) {
+        // Get the temp path before closing — video().path() returns the temp WebM
+        const tempVideoPath = await video.path();
+        console.log(`  Recording temp file: ${tempVideoPath}`);
+
+        // Close page to finalize the video file
+        await currentPage.close();
+
+        const finalWebmPath = join(RECORDINGS_DIR, `${meetingId}.webm`);
+
+        // Rename temp file to meeting ID
+        if (existsSync(tempVideoPath)) {
+          const { renameSync, copyFileSync } = await import("node:fs");
+          try {
+            renameSync(tempVideoPath, finalWebmPath);
+          } catch {
+            // Cross-device rename fails — copy instead
+            copyFileSync(tempVideoPath, finalWebmPath);
+            unlinkSync(tempVideoPath);
+          }
+          console.log(`[OPENUTTER_RECORDING] ${finalWebmPath}`);
+
+          // Try to convert to MP4 using ffmpeg (best-effort)
+          const finalMp4Path = join(RECORDINGS_DIR, `${meetingId}.mp4`);
+          try {
+            execSync(
+              `ffmpeg -y -i ${JSON.stringify(finalWebmPath)} -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k ${JSON.stringify(finalMp4Path)} 2>/dev/null`,
+              { timeout: 300_000 },
+            );
+            console.log(`[OPENUTTER_RECORDING_MP4] ${finalMp4Path}`);
+            sendMessage({
+              channel,
+              target,
+              message: `🦦 Meeting recording saved: ${finalMp4Path}`,
+            });
+          } catch {
+            console.log("  ffmpeg not available or conversion failed — WebM recording kept");
+            sendMessage({
+              channel,
+              target,
+              message: `🦦 Meeting recording saved (WebM): ${finalWebmPath}`,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Recording save failed:", err instanceof Error ? err.message : String(err));
+    }
   }
 
   return { context: currentContext, page: currentPage, reason };

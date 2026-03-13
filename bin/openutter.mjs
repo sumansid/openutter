@@ -38,6 +38,7 @@ Examples:
   npx openutter join https://meet.google.com/abc-defg-hij --anon --bot-name "OpenUtter Bot"
   npx openutter join https://meet.google.com/abc-defg-hij --auth
   npx openutter join https://meet.google.com/abc-defg-hij --auth --headed
+  npx openutter join https://meet.google.com/abc-defg-hij --auth --record
   npx openutter auth
   npx openutter transcript --last 20
   npx openutter screenshot
@@ -45,6 +46,7 @@ Examples:
 Join options:
   --headed     Show the browser window for debugging
   --duration   Auto-leave after a duration like 30m
+  --record     Record meeting video (saves WebM, converts to MP4 if ffmpeg available)
 
 Chromium:
   Installed automatically when possible during \`npx openutter\``);
