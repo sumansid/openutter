@@ -1,5 +1,4 @@
-# OpenUtter
-
+# OpenUtter - [Demo](https://x.com/0xSuman/status/2028365808733397180?s=20)
 <img width="1376" height="768" alt="Generated Image March 01, 2026 - 2_20PM (1)" src="https://github.com/user-attachments/assets/ce352f31-d381-450d-af6a-a01e57b13d6d" />
 
 OpenUtter is a headless Google Meet bot for OpenClaw. It can join meetings,
