@@ -209,6 +209,7 @@ function runScript(scriptName, args) {
 
   const result = spawnSync(process.execPath, ["--import", "tsx", scriptPath, ...args], {
     stdio: "inherit",
+    cwd: pkgRoot,
   });
 
   if (result.error) {
